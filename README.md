@@ -107,6 +107,9 @@ docker compose up -d
 | `CHECK_INTERVAL` | `30` | Seconds between health checks |
 | `TIMEOUT` | `10` | Seconds to wait for each site test |
 | `FAIL_THRESHOLD` | `2` | Consecutive failures before triggering restart |
+| `MIN_SPEED_MBPS` | `0` | Minimum download speed in Mbps required to consider the VPN healthy. Set to `0` to disable the speed check. |
+| `SPEED_TEST_SIZE_MB` | `100` | Download size in megabytes for the optional speed test. |
+| `SPEED_TEST_URL` | `https://nyc.speedtest.clouvider.net/backend/garbage.php?ckSize=${SPEED_TEST_SIZE_MB}` | URL to download for the optional speed test. |
 | `HEALTHY_WAIT_TIMEOUT` | `120` | Max seconds to wait for Gluetun to become healthy after restart |
 | `TZ` | `UTC` | Timezone for log timestamps |
 

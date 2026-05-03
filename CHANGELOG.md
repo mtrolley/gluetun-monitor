@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- Optional minimum download speed health check via `MIN_SPEED_MBPS`, `SPEED_TEST_SIZE_MB`, and `SPEED_TEST_URL`
+
 ## [1.0.0] - 2025-12-12
 
 ### Added

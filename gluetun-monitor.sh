@@ -13,6 +13,10 @@ TIMEOUT="${TIMEOUT:-10}"
 FAIL_THRESHOLD="${FAIL_THRESHOLD:-2}"
 GLUETUN_CONTAINER="${GLUETUN_CONTAINER:-gluetun}"
 HEALTHY_WAIT_TIMEOUT="${HEALTHY_WAIT_TIMEOUT:-120}"
+MIN_SPEED_MBPS="${MIN_SPEED_MBPS:-0}"
+SPEED_TEST_SIZE_MB="${SPEED_TEST_SIZE_MB:-100}"
+SPEED_TEST_URL="${SPEED_TEST_URL:-https://nyc.speedtest.clouvider.net/backend/garbage.php?ckSize=${SPEED_TEST_SIZE_MB}}"
+SPEED_TEST_INTERVAL="${SPEED_TEST_INTERVAL:-3600}"
 
 # Dependent containers - set to "auto" to discover dynamically, or comma-separated list
 DEPENDENT_CONTAINERS="${DEPENDENT_CONTAINERS:-auto}"
@@ -22,6 +26,9 @@ declare -A site_failures
 
 # Track site count for change detection
 LAST_SITE_COUNT=""
+
+# Track last speed test time (seconds since epoch)
+LAST_SPEED_TEST_TIME=0
 
 log() {
     local level="$1"
@@ -359,6 +366,48 @@ test_all_sites() {
     return 0
 }
 
+test_speed() {
+    local speed_test_bytes=$((SPEED_TEST_SIZE_MB * 1024 * 1024))
+
+    # Disable test if threshold <= 0
+    if (( MIN_SPEED_MBPS <= 0 )); then
+        log "DEBUG" "Speed test disabled (MIN_SPEED_MBPS=$MIN_SPEED_MBPS)"
+        return 0
+    fi
+
+    log "DEBUG" "Running speed test: minimum ${MIN_SPEED_MBPS} Mbps, size ${SPEED_TEST_SIZE_MB}MB"
+
+    local start_time end_time elapsed_ms elapsed_sec measured response exit_code
+
+    start_time=$(date +%s%3N)
+
+    response=$(docker exec "$GLUETUN_CONTAINER" sh -c "exec wget -O /dev/null -T $TIMEOUT -t 1 '$SPEED_TEST_URL' 2>&1")
+    exit_code=$?
+
+    end_time=$(date +%s%3N)
+
+    if [[ $exit_code -ne 0 ]]; then
+        log "WARN" "Speed test failed with wget (exit code $exit_code). Full output: ${response}"
+        return 1
+    fi
+
+    elapsed_ms=$((end_time - start_time))
+    elapsed_sec=$(awk "BEGIN {printf \"%.3f\", $elapsed_ms / 1000}")
+
+    measured=$(awk "BEGIN {printf \"%.2f\", ($speed_test_bytes / $elapsed_sec * 8) / 1000000}")
+
+    if awk "BEGIN {exit !($measured >= $MIN_SPEED_MBPS)}"; then
+        local next_run_time next_run_str
+        next_run_time=$((LAST_SPEED_TEST_TIME + SPEED_TEST_INTERVAL))
+        next_run_str=$(date -d @"$next_run_time" '+%Y-%m-%d %H:%M:%S')
+        log "DEBUG" "Speed test passed: ${measured} Mbps >= ${MIN_SPEED_MBPS} Mbps (${elapsed_ms}ms), next run at $next_run_str"
+        return 0
+    fi
+
+    log "WARN" "Speed test failed: ${measured} Mbps < ${MIN_SPEED_MBPS} Mbps (${elapsed_ms}ms)"
+    return 1
+}
+
 restart_gluetun() {
     log "INFO" "Restarting $GLUETUN_CONTAINER to force new endpoint..."
 
@@ -476,7 +525,7 @@ check_prerequisites() {
 
 main() {
     log "INFO" "Gluetun Monitor starting..."
-    log "INFO" "Config: CHECK_INTERVAL=${CHECK_INTERVAL}s, TIMEOUT=${TIMEOUT}s, FAIL_THRESHOLD=${FAIL_THRESHOLD}"
+    log "INFO" "Config: CHECK_INTERVAL=${CHECK_INTERVAL}s, TIMEOUT=${TIMEOUT}s, FAIL_THRESHOLD=${FAIL_THRESHOLD}, MIN_SPEED_MBPS=${MIN_SPEED_MBPS}, SPEED_TEST_SIZE_MB=${SPEED_TEST_SIZE_MB}, SPEED_TEST_INTERVAL=${SPEED_TEST_INTERVAL}s, SPEED_TEST_URL=${SPEED_TEST_URL}"
     log "INFO" "Monitoring container: $GLUETUN_CONTAINER"
 
     check_prerequisites
@@ -522,7 +571,17 @@ main() {
         fi
 
         # Test all sites
-        if ! test_all_sites "$CONFIG_FILE"; then
+        if test_all_sites "$CONFIG_FILE"; then
+            # Check if it's time to run speed test (interval-based, not every check)
+            local current_time
+            current_time=$(date +%s)
+            if [[ $((current_time - LAST_SPEED_TEST_TIME)) -ge $SPEED_TEST_INTERVAL ]]; then
+                LAST_SPEED_TEST_TIME=$current_time
+                if ! test_speed; then
+                    log "WARN" "Speed test failed but will not trigger recovery"
+                fi
+            fi
+        else
             handle_failure
         fi
 

@@ -11,6 +11,8 @@ setup_test_env() {
     export TIMEOUT="10"
     export FAIL_THRESHOLD="2"
     export HEALTHY_WAIT_TIMEOUT="120"
+    export MIN_SPEED_MBPS="0"
+    export SPEED_TEST_URL="https://speed.cloudflare.com/__down?bytes=1000000"
     export DEPENDENT_CONTAINERS="auto"
 }
 

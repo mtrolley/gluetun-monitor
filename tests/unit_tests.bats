@@ -110,3 +110,57 @@ teardown() {
     source <(grep "^DEPENDENT_CONTAINERS=" gluetun-monitor.sh)
     [ "$DEPENDENT_CONTAINERS" = "auto" ]
 }
+
+@test "MIN_SPEED_MBPS default is 0" {
+    unset MIN_SPEED_MBPS
+    source <(grep "^MIN_SPEED_MBPS=" gluetun-monitor.sh)
+    [ "$MIN_SPEED_MBPS" = "0" ]
+}
+
+@test "SPEED_TEST_SIZE_MB default is 100" {
+    unset SPEED_TEST_SIZE_MB
+    source <(grep "^SPEED_TEST_SIZE_MB=" gluetun-monitor.sh)
+    [ "$SPEED_TEST_SIZE_MB" = "100" ]
+}
+
+@test "SPEED_TEST_URL default is constructed from SPEED_TEST_SIZE_MB" {
+    unset SPEED_TEST_URL
+    unset SPEED_TEST_SIZE_MB
+    source <(grep '^SPEED_TEST_SIZE_MB=' gluetun-monitor.sh)
+    source <(grep '^SPEED_TEST_URL=' gluetun-monitor.sh)
+    expected_url="https://nyc.speedtest.clouvider.net/backend/garbage.php?ckSize=${SPEED_TEST_SIZE_MB}"
+    [ "$SPEED_TEST_URL" = "$expected_url" ]
+}
+
+
+@test "test_speed returns success when speed meets threshold" {
+    export MIN_SPEED_MBPS="5"
+
+    docker() {
+        if [[ "$1" == "exec" && "$2" == "test-gluetun" ]]; then
+            # Fast download
+            sleep 0.05
+            return 0
+        fi
+        return 0
+    }
+
+    run test_speed
+    [ "$status" -eq 0 ]
+}
+
+@test "test_speed returns failure when speed is below threshold" {
+    export MIN_SPEED_MBPS="1000"   # higher than simulated speed
+
+    docker() {
+        if [[ "$1" == "exec" && "$2" == "test-gluetun" ]]; then
+            sleep 1
+            return 0
+        fi
+        return 0
+    }
+
+    run test_speed
+    [ "$status" -ne 0 ]
+}
+
